@@ -6,3 +6,7 @@ A repository for a project for the TU\e course Multiphase Computational Fluid Dy
 Adam Krasznavgornyi
 David Tierie
 Tomas Dadikozyan
+
+# Deadlines
+
+Assignment 1 - Deadline ....
