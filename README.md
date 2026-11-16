@@ -3,7 +3,7 @@ A repository for a project for the TU\e course Multiphase Computational Fluid Dy
 
 # Current collaborators:
 
-Adam Krasznavgornyi
+Adam Krasznavolgyi
 David Tierie
 Tomas Dadikozyan
 
