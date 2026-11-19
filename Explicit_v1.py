@@ -21,7 +21,7 @@ def determinePhi_exp(gridsteps, t_end, dt, Da):
     Phi_B[0,len(x)-1] = 1 
     
     # time loop over desired number of timesteps
-    for j in range (1, int(t_end/dt)):
+    for j in range (1, timesteps):
         for i in range(len(x)):
             if i == 0:
                 Phi_A[:,i] = 1                        # boundary condition y = 0 : Phi_A = 1
@@ -30,15 +30,10 @@ def determinePhi_exp(gridsteps, t_end, dt, Da):
             else:
                 Phi_A[j+1,i] = (2*dt/(3*dl**2))*(Phi_A[j,i+1]-2*Phi_A[j,i]+Phi_A[j,i-1]) +4*Phi_A[j,i]/3-Phi_A[j-1,i]/3 - 2*dt*Da*Phi_A[j,i]*Phi_B[j,i]/3
                 Phi_B[j+1,i] = (2*dt/(3*dl**2))*(Phi_B[j,i+1]-2*Phi_B[j,i]+Phi_B[j,i-1]) +4*Phi_B[j,i]/3-Phi_B[j-1,i]/3 - 2*dt*Da*Phi_B[j,i]*Phi_A[j,i]/3
-    return Phi_A,Phi_B
-
-def plot(gridsteps, t_end, dt, Da):
     
-    # Create the arrays for all space and time steps
-    x = np.linspace(0, 1, gridsteps) #create coordinate mesh
-    dl = x[1]-x[0] # define dl, just step between first and second gridpoint 
-    timesteps = int(t_end/dt) # number of time steps     
-    t = np.linspace(0, t_end, timesteps+1) #create time mesh
+    return x, t, Phi_A, Phi_B
+
+def plot(x, t, Phi_A, Phi_B):
 
     plt.figure(figsize=(12,8))
 
@@ -58,6 +53,17 @@ def plot(gridsteps, t_end, dt, Da):
 dt = 0.000025
 tmax = 0.1
 gridsteps = 100    # number of steps in the space direction
-Da   = 1000        # Damkohler number (used to change k), basically no effect below 100 from my testing
-Phi_A, Phi_B = determinePhi_exp(gridsteps, tmax, dt, Da) 
-plot(gridsteps, tmax, dt, Da)
+Da = 100 # Damkohler number (used to change k), basically no effect below 100 from my testing
+
+#-------------------------------------Determine explicit stability in terms of delta_tau----------------
+#Turns out tau plays the role of a Fourier number, so it defines stability, through the test shown below
+#we found out the criteria is around dt > 1*10**(-4). Run below to see the error blow up.
+
+Da = 0 #remove reaction, although it does not matter
+#David wants to prove this more eleganly
+for coef in list([4.085, 4.1]):
+    dt_test = coef*dt
+    x, t, Phi_A, Phi_B = determinePhi_exp(gridsteps, tmax, dt_test, Da)
+    plot(x, t, Phi_A, Phi_B)
+
+
