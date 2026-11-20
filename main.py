@@ -64,18 +64,18 @@ def determinePhi_expl(gridsteps, t_end, dt, Da):
     
     return x, t, Phi_A, Phi_B
 
-def determinePhi_(gridsteps,  dt, Da, Told = np.array):
+# def determinePhi_impl(gridsteps,  dt, Da, Told = np.array):
     
-    Tnew = np.zeros_like(gridsteps)
-    matrix = sps.diags([-Fo, 1+2*Fo-CFL, CFL-Fo], [-1, 0, 1], shape=(len(gridsteps),
-    len(gridsteps)))
-    matrix = sps.csr_matrix(matrix)
-    matrix[0,0] = 1.0 # boundary condition y = 0 : T = 0
-    matrix[0,1] = 0.0
-    matrix[len(gridsteps)-1,len(gridsteps)-1] = 1.0 # boundary condition y = L : T = 0
-    matrix[len(gridsteps)-1,len(gridsteps)-2] = 0.0
-    Tnew = sps.linalg.spsolve(matrix, Told)
-    return Tnew
+#     Tnew = np.zeros_like(gridsteps)
+#     matrix = sps.diags([-Fo, 1+2*Fo-CFL, CFL-Fo], [-1, 0, 1], shape=(len(gridsteps),
+#     len(gridsteps)))
+#     matrix = sps.csr_matrix(matrix)
+#     matrix[0,0] = 1.0 # boundary condition y = 0 : T = 0
+#     matrix[0,1] = 0.0
+#     matrix[len(gridsteps)-1,len(gridsteps)-1] = 1.0 # boundary condition y = L : T = 0
+#     matrix[len(gridsteps)-1,len(gridsteps)-2] = 0.0
+#     Tnew = sps.linalg.spsolve(matrix, Told)
+#     return Tnew
 
 def plot(x, t, Phi_A, Phi_B, N_snapshots = 10):
     """Plots the solution of the two concetration profiles 
@@ -87,16 +87,18 @@ def plot(x, t, Phi_A, Phi_B, N_snapshots = 10):
     :param np.array(2D) Phi_B: the concetration profile of species B in space and time
     :param int N_snapshots: the number of snapshots taken from the system, default is 10
     :return: None
-    
-    
+
     """ 
 
-    plt.figure(figsize=(12,8))
+    idx = np.linspace(0, len(t)-1, N_snapshots, dtype=int) #snapshots at equally spaced times
+    colors = plt.cm.rainbow(np.linspace(0, 1, N_snapshots)) #one color for each snapshot using a colormap
 
-    for j in range(0,len(t),500):
-        plt.plot(x, Phi_A[j,:], label=f'A, t={t[j]:.2f}')
-        plt.plot(x, Phi_B[j,:], '--', label=f'B, t={t[j]:.2f}')
+    plt.figure(figsize=(12, 8))
+    for j, c in zip(idx, colors):
+        plt.plot(x, Phi_A[j, :], color=c, label=f't={t[j]:.3f}')   # A: solid
+        plt.plot(x, Phi_B[j, :], '--', color=c)                    # B: dashed
 
+    plt.title("Dimensionless concentration of A (solid) and B (dashed)")
     plt.xlabel('x')
     plt.ylabel('Phi')
     plt.legend(fontsize=8, ncol = 2)
