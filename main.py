@@ -25,11 +25,11 @@ def determinePhi_expl(gridsteps, t_end, dt, Da):
 
     #Define ValueErrors
     if not isinstance(gridsteps, (int, np.integer)):
-        print ("Arg gridteps has to be an integer!")
+        print ("Arg gridsteps has to be an integer!")
         raise ValueError
 
     if (gridsteps <= 0) or (t_end <= 0) or (dt <= 0):
-        print ("Args gridsteps, t_end, dt have to be bigger than zero!")
+        print ("Args gridsteps, t_end, dt have to be larger than zero!")
         raise ValueError
 
     if (Da < 0):
@@ -64,23 +64,24 @@ def determinePhi_expl(gridsteps, t_end, dt, Da):
     
     return x, t, Phi_A, Phi_B
 
-# def determinePhi_impl(gridsteps,  dt, Da, Told = np.array):
+def determinePhi_impl(gridsteps,  dt, Da, Told = np.array):
     
-#     Tnew = np.zeros_like(gridsteps)
-#     matrix = sps.diags([-Fo, 1+2*Fo-CFL, CFL-Fo], [-1, 0, 1], shape=(len(gridsteps),
-#     len(gridsteps)))
-#     matrix = sps.csr_matrix(matrix)
-#     matrix[0,0] = 1.0 # boundary condition y = 0 : T = 0
-#     matrix[0,1] = 0.0
-#     matrix[len(gridsteps)-1,len(gridsteps)-1] = 1.0 # boundary condition y = L : T = 0
-#     matrix[len(gridsteps)-1,len(gridsteps)-2] = 0.0
-#     Tnew = sps.linalg.spsolve(matrix, Told)
-#     return Tnew
+    Tnew = np.zeros_like(gridsteps)
+    matrix = sps.diags([-Fo, 1+2*Fo-CFL, CFL-Fo], [-1, 0, 1], shape=(len(gridsteps),
+    len(gridsteps)))
+    matrix = sps.csr_matrix(matrix)
+    matrix[0,0] = 1.0 # boundary condition y = 0 : T = 0
+    matrix[0,1] = 0.0
+    matrix[len(gridsteps)-1,len(gridsteps)-1] = 1.0 # boundary condition y = L : T = 0
+    matrix[len(gridsteps)-1,len(gridsteps)-2] = 0.0
+    Tnew = sps.linalg.spsolve(matrix, Told)
+    return Tnew
 
 def plot(x, t, Phi_A, Phi_B, N_snapshots = 10):
     """Plots the solution of the two concetration profiles 
     by showing a number of snapshots of the system for different times. It uses
     the result of determinePhi_expl() or determinePhi_impl() and the number of snapshots. 
+
     :param np.array(1D) x: the space coordinate
     :param np.array(1D) t: the time coordinate
     :param np.array(2D) Phi_A: the concetration profile of species A in space and time
@@ -89,6 +90,10 @@ def plot(x, t, Phi_A, Phi_B, N_snapshots = 10):
     :return: None
 
     """ 
+    #Define ValueError
+    if not isinstance(N_snapshots, (int, np.integer)) or (N_snapshots <= 0):
+        print("Arg N_snapshots has to be a positive integer larger than 0")
+        raise ValueError
 
     idx = np.linspace(0, len(t)-1, N_snapshots, dtype=int) #snapshots at equally spaced times
     colors = plt.cm.rainbow(np.linspace(0, 1, N_snapshots)) #one color for each snapshot using a colormap
