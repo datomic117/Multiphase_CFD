@@ -64,18 +64,20 @@ def determinePhi_expl(gridsteps, t_end, dt, Da):
     
     return x, t, Phi_A, Phi_B
 
-def determinePhi_impl(gridsteps,  dt, Da, Told = np.array):
+
+
+# def determinePhi_impl(gridsteps,  dt, Da, Told = np.array):
     
-    Tnew = np.zeros_like(gridsteps)
-    matrix = sps.diags([-Fo, 1+2*Fo-CFL, CFL-Fo], [-1, 0, 1], shape=(len(gridsteps),
-    len(gridsteps)))
-    matrix = sps.csr_matrix(matrix)
-    matrix[0,0] = 1.0 # boundary condition y = 0 : T = 0
-    matrix[0,1] = 0.0
-    matrix[len(gridsteps)-1,len(gridsteps)-1] = 1.0 # boundary condition y = L : T = 0
-    matrix[len(gridsteps)-1,len(gridsteps)-2] = 0.0
-    Tnew = sps.linalg.spsolve(matrix, Told)
-    return Tnew
+#     Tnew = np.zeros_like(gridsteps)
+#     matrix = sps.diags([-Fo, 1+2*Fo-CFL, CFL-Fo], [-1, 0, 1], shape=(len(gridsteps),
+#     len(gridsteps)))
+#     matrix = sps.csr_matrix(matrix)
+#     matrix[0,0] = 1.0 # boundary condition y = 0 : T = 0
+#     matrix[0,1] = 0.0
+#     matrix[len(gridsteps)-1,len(gridsteps)-1] = 1.0 # boundary condition y = L : T = 0
+#     matrix[len(gridsteps)-1,len(gridsteps)-2] = 0.0
+#     Tnew = sps.linalg.spsolve(matrix, Told)
+#     return Tnew
 
 def plot(x, t, Phi_A, Phi_B, N_snapshots = 10):
     """Plots the solution of the two concetration profiles 
@@ -111,22 +113,33 @@ def plot(x, t, Phi_A, Phi_B, N_snapshots = 10):
 
     return None
 
+#STILL WORKING ON IT
+def stability_crit(dt, Da):
+    N_steps = 100
+    dt_test = np.linspace((0.1*dt), (10*dt), N_steps)
+    Da = 0
+    for dt in dt_test:
+        x, t, Phi_A, Phi_B = determinePhi_expl(gridsteps, tmax, dt, Da)
+        if np.max(np.abs(Phi_A)) <= 1 and np.max(np.abs(Phi_B)) <= 1:
+            last_stable = (x, t, Phi_A, Phi_B, dt)
+            continue
+        else:
+            first_unstable = (x, t, Phi_A, Phi_B, dt)
+            break
+
+    plot(*last_stable[:4])
+    plot(*first_unstable[:4])
+
+    return None
 
 #-------------------------------------RUN EXPLICIT SCHEME-----------------------------------------------
 dt = 0.000025
 tmax = 0.1
 gridsteps = 100    # number of steps in the space direction
-Da = 100 # Damkohler number (used to change k), basically no effect below 100 from my testing
+Da = 0 # Damkohler number (used to change k), basically no effect below 100 from my testing
 
 #-------------------------------------Determine explicit stability in terms of delta_tau----------------
 #Turns out tau plays the role of a Fourier number, so it defines stability, through the test shown below
 #we found out the criteria is around dt > 1*10**(-4). Run below to see the error blow up.
 
-Da = 0 #remove reaction, although it does not matter
-#David wants to prove this more eleganly
-for coef in list([4.085, 4.1]):
-    dt_test = coef*dt
-    x, t, Phi_A, Phi_B = determinePhi_expl(gridsteps, tmax, dt_test, Da)
-    plot(x, t, Phi_A, Phi_B)
-
-
+stability_crit(dt, Da)
