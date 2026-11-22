@@ -4,10 +4,6 @@ import scipy.sparse as sps
 from   scipy.sparse.linalg import spsolve, cg, bicgstab, spilu, LinearOperator
 import math
 
-def main():
-    pass
-
-
 def determinePhi_expl(gridsteps, t_end, dt, Da):
 
     """Determine the solution of two concentration matrices of both species at 
@@ -139,16 +135,20 @@ def determinePhi_impl(gridsteps, t_end, dt, Da):
         sub  = -s*F*np.ones(len(x)-1)
         sup  = -s*F*np.ones(len(x)-1)
 
-        # boundary rows read 1*Phi = bc, so remove their off-diagonal entries
+        # Ensure boundary condtions are enforced by removing off diagonal entries of first 
+        # and last row and setting the diagonal to 1. This works in tandem with making the values
+        # of b match the boundary conditions at the two walls. Then the equation becomes 1*Phi = bc
+        # so Phi = bc.
         diag[0] = diag[-1] = 1.0
         sup[0]  = 0.0     # sup[0]  is matrix[0,1]
         sub[-1] = 0.0     # sub[-1] is matrix[N-1,N-2]
         matrix = sps.diags([sub, diag, sup], [-1, 0, 1], format="csc")
 
+        #Allow for multiple discretisation schemes
         b = rhs.copy()    # copy, so the stored history in Phi is not overwritten
-        b[0]  = bc_left
+        b[0]  = bc_left   
         b[-1] = bc_right
-        return spsolve(matrix, b)
+        return spsolve(matrix, b) #returns the Phi vector at a single time step
 
     # time loop over desired number of timesteps, every pass fills one whole row n+1
     for n in range(timesteps):
@@ -240,24 +240,6 @@ def stability_crit(gridsteps, t_end, dt, Da, N_steps=50):
         print(f"Could not find a timestep for which the function breaks between {dt:.6f} and {100*dt:.6f}")
     return None
 
-#-------------------------------------RUN EXPLICIT SCHEME-----------------------------------------------
-dt = 0.000025
-tmax = 0.1
-gridsteps = 100    # number of steps in the space direction
-Da = 1000 # Damkohler number (used to change k), basically no effect below 100 from my testing
-
-#-------------------------------------Determine explicit stability in terms of delta_tau----------------
-#Turns out tau plays the role of a Fourier number, so it defines stability, through the test shown below
-#we found out the criteria is around dt > 1*10**(-4). Run below to see the error blow up.
-
-stability_crit(dt, Da)
-
-
-#Showcase implicit function stablity by using bigger and bigger dt and plotting
-#for dt in [0.000025, 0.0001, 0.001, 0.01]: 
-   # x,t, Phi_A, Phi_B = determinePhi_impl(gridsteps, tmax, dt, Da)
-    #plot(x, t, Phi_A, Phi_B,dt)
-
 # Error Checker function: compare each dt and gridsize to the smallest dt and largest gridsize, and see if the error is within a certain tolerance.
 def error_checker_dt( tmax, Da):
     """Compares solution with a given dt to a reference solution. The reference solution is the one computed with the \
@@ -309,8 +291,6 @@ def error_checker_dt( tmax, Da):
     plt.grid(True, which='both', ls='--')
     plt.show()
          
-#error_checker_dt(tmax, Da)
-
 def error_checker_grid( tmax, Da):
     """Compares solution with a given grid size to a reference solution. The reference solution is the one computed with the \
     smallest dt and the largest gridsteps. Function works for both implicit and explicit methods. It computes the root mean square error \
@@ -365,4 +345,42 @@ def error_checker_grid( tmax, Da):
     plt.grid(True, which='both', ls='--')
     plt.show()
 
-error_checker_grid( tmax, Da)
+
+def main():
+    """Entry point: sets the parameters and runs the selected parts of the analysis.
+    Switch the flags to choose what is run, since the error checkers are computationally expensive."""
+
+    #-------------------------------------Parameters-----------------------------------------------------
+    dt = 0.000025
+    tmax = 0.1
+    gridsteps = 100    # number of steps in the space direction
+    Da = 1000 # Damkohler number (used to change k), basically no effect below 100 from my testing
+
+    #-------------------------------------Choose what to run---------------------------------------------
+    run_stability      = True    # find the explicit stability limit
+    run_impl_showcase  = False   # show implicit stability for increasing dt
+    run_error_dt       = False   # convergence in dt
+    run_error_grid     = False   # convergence in grid size
+
+    #-------------------------------------Determine explicit stability in terms of delta_tau-------------
+    #Turns out tau plays the role of a Fourier number, so it defines stability, through the test shown below
+    #we found out the criteria is around dt > 1*10**(-4). Run below to see the error blow up.
+    if run_stability:
+        stability_crit(gridsteps, tmax, dt, Da)
+
+    #Showcase implicit function stablity by using bigger and bigger dt and plotting
+    if run_impl_showcase:
+        for dt_i in [0.000025, 0.0001, 0.001, 0.01]:
+            x, t, Phi_A, Phi_B = determinePhi_impl(gridsteps, tmax, dt_i, Da)
+            plot(x, t, Phi_A, Phi_B, dt_i)
+
+    #Compare each dt and gridsize to the reference solution
+    if run_error_dt:
+        error_checker_dt(tmax, Da)
+
+    if run_error_grid:
+        error_checker_grid(tmax, Da)
+
+
+if __name__ == "__main__":
+    main()
