@@ -270,7 +270,10 @@ def stability_crit(gridsteps, t_end, dt, Da, N_steps=50, scheme="explicit"):
     tol = 1e-9   # margin for rounding error in the bound |Phi| <= 1
     dt_test = np.linspace((dt), (100*dt), N_steps)
     for dt_i in dt_test:
-        x, t, Phi_A, Phi_B = solver(gridsteps, t_end, dt_i, Da)
+        # an unstable run grows until it overflows to inf and nan, that is the thing we are looking for here,
+        # so the overflow warnings are silenced for this call only
+        with np.errstate(over='ignore', invalid='ignore'):
+            x, t, Phi_A, Phi_B = solver(gridsteps, t_end, dt_i, Da)
         # the concentrations are bounded by 1, with a margin for rounding error: the implicit solver
         # returns 1.0000000000000007 at the boundary, which is not an instability
         max_A, max_B = np.max(np.abs(Phi_A)), np.max(np.abs(Phi_B))
