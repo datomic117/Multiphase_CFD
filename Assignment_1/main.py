@@ -3,6 +3,33 @@ import matplotlib.pyplot as plt
 import scipy.sparse as sps
 from   scipy.sparse.linalg import spsolve, cg, bicgstab, spilu, LinearOperator
 import math
+from   scipy.linalg.lapack import dgtsv
+
+
+def check_inputs(gridsteps, t_end, dt, Da):
+    """Checks the input arguments shared by the solvers, the stability test and the error checkers.
+
+    :param int gridsteps: the number of gridsteps for the 1D problem
+    :param float t_end: the total span of time from the beginning
+    :param float dt: dimensionless timestep
+    :param float Da: the Damköhler number
+    :return: None
+    :raises ValueError: if gridsteps is not int
+    :raises ValueError: if gridsteps, t_end, dt is nonpositive
+    :raises ValueError: if Da is negative
+    """
+    if not isinstance(gridsteps, (int, np.integer)):
+        print ("Arg gridsteps has to be an integer!")
+        raise ValueError
+
+    if (gridsteps <= 0) or (t_end <= 0) or (dt <= 0):
+        print ("Args gridsteps, t_end, dt have to be larger than zero!")
+        raise ValueError
+
+    if (Da < 0):
+        print("Arg Da cannot be negative")
+        raise ValueError
+
 
 def determinePhi_expl(gridsteps, t_end, dt, Da):
 
@@ -24,22 +51,12 @@ def determinePhi_expl(gridsteps, t_end, dt, Da):
     """
 
     #Define ValueErrors
-    if not isinstance(gridsteps, (int, np.integer)):
-        print ("Arg gridsteps has to be an integer!")
-        raise ValueError
+    check_inputs(gridsteps, t_end, dt, Da)
 
-    if (gridsteps <= 0) or (t_end <= 0) or (dt <= 0):
-        print ("Args gridsteps, t_end, dt have to be larger than zero!")
-        raise ValueError
 
-    if (Da < 0):
-        print("Arg Da cannot be negative")
-        raise ValueError
-
-    
     # Create the arrays for all space and time steps
     x = np.linspace(0, 1, gridsteps) #create coordinate mesh
-    dl = x[1]-x[0] # define dl, just step between first and second gridpoint 
+    dl = x[1]-x[0] # define dl, just step between first and second gridpoint
     timesteps = int(t_end/dt) # number of time steps     
     t = np.linspace(0, t_end, timesteps+1) #create time mesh
 
@@ -66,7 +83,7 @@ def determinePhi_expl(gridsteps, t_end, dt, Da):
 
 
 
-def determinePhi_impl(gridsteps, t_end, dt, Da):
+def determinePhi_impl(gridsteps, t_end, dt, Da, optimised_solving=True):
 
     """Determine the solution of two concentration matrices of both species at
     every gridpoint in space and time. This is an implicit method.
@@ -88,25 +105,23 @@ def determinePhi_impl(gridsteps, t_end, dt, Da):
     :param float t_end: the total span of time from the beginning
     :param float dt: represents the step in Fourier number - dimensionless timestep
     :param float Da: the Damköhler number - dimensionless diffusion coefficient
+    :param bool optimised_solving: if True (default) the tridiagonal system is solved directly from its three
+        diagonals with the LAPACK routine dgtsv, which is much faster. If False the sparse matrix is assembled
+        and solved with spsolve.
     :return: the space mesh, time mesh, the concetration 2D arrays of A, B
     :rtype: tuple(np.array(1D), np.array(1D), np.array(2D), np.array(2D))
     :raises ValueError: if gridsteps is not int
     :raises ValueError: if gridsteps, t_end, dt is nonpositive
     :raises ValueError: if Da is negative
+    :raises ValueError: if optimised_solving is not a bool
 
     """
 
     #Define ValueErrors
-    if not isinstance(gridsteps, (int, np.integer)):
-        print ("Arg gridsteps has to be an integer!")
-        raise ValueError
+    check_inputs(gridsteps, t_end, dt, Da)
 
-    if (gridsteps <= 0) or (t_end <= 0) or (dt <= 0):
-        print ("Args gridsteps, t_end, dt have to be larger than zero!")
-        raise ValueError
-
-    if (Da < 0):
-        print("Arg Da cannot be negative")
+    if not isinstance(optimised_solving, (bool, np.bool_)):
+        print("Arg optimised_solving has to be a boolean!")
         raise ValueError
 
 
@@ -142,12 +157,18 @@ def determinePhi_impl(gridsteps, t_end, dt, Da):
         diag[0] = diag[-1] = 1.0
         sup[0]  = 0.0     # sup[0]  is matrix[0,1]
         sub[-1] = 0.0     # sub[-1] is matrix[N-1,N-2]
-        matrix = sps.diags([sub, diag, sup], [-1, 0, 1], format="csc")
 
         #Allow for multiple discretisation schemes
         b = rhs.copy()    # copy, so the stored history in Phi is not overwritten
-        b[0]  = bc_left   
+        b[0]  = bc_left
         b[-1] = bc_right
+
+        if optimised_solving:
+            # dgtsv solves the tridiagonal system directly from its three diagonals (no matrix is assembled).
+            # It overwrites its inputs, which is fine since they are rebuilt every step. [3] is the solution.
+            return dgtsv(sub, diag, sup, b)[3]
+
+        matrix = sps.diags([sub, diag, sup], [-1, 0, 1], format="csc")
         return spsolve(matrix, b) #returns the Phi vector at a single time step
 
     # time loop over desired number of timesteps, every pass fills one whole row n+1
@@ -211,16 +232,29 @@ def stability_crit(gridsteps, t_end, dt, Da, N_steps=50):
     """Finds the first and last timestep for which the explicit integration scheme blows up. 
     It finds this timestep in the range of the given timestep to 100 times the given timesteps, in N_steps steps.
     Increasing N_steps increases computational cost significantly.
-    Value errors are already caught in Determin_Phi_expl.
-    
+
     :param int gridsteps: the number of gridsteps for the 1D problem
     :param float t_end: the total span of time from the beginning
     :param float dt: represents the step in Fourier number - dimensionless timestep
     :param float Da: the Damköhler number - dimensionless diffusion coefficient
     :param int N_steps: the number of steps taken from dt to 100*dt, default is 50.
     :return: None
+    :raises ValueError: if gridsteps or N_steps is not int
+    :raises ValueError: if gridsteps, t_end, dt, N_steps is nonpositive
+    :raises ValueError: if Da is negative
 
     """
+
+    #Define ValueErrors
+    check_inputs(gridsteps, t_end, dt, Da)
+
+    if not isinstance(N_steps, (int, np.integer)):
+        print("Arg N_steps has to be an integer!")
+        raise ValueError
+
+    if N_steps <= 0:
+        print("Arg N_steps has to be larger than zero!")
+        raise ValueError
 
     dt_test = np.linspace((dt), (100*dt), N_steps)
     for dt in dt_test:
@@ -241,14 +275,23 @@ def stability_crit(gridsteps, t_end, dt, Da, N_steps=50):
     return None
 
 # Error Checker function: compare each dt and gridsize to the smallest dt and largest gridsize, and see if the error is within a certain tolerance.
-def error_checker_dt( tmax, Da):
+def error_checker_dt(tmax, Da, dt=0.00001, gridsteps=100):
     """Compares solution with a given dt to a reference solution. The reference solution is the one computed with the \
     smallest dt and the largest gridsteps. Function works for both implicit and explicit methods. It computes the root mean square error \
-    and graphs it as a function of dt """
+    and graphs it as a function of dt.
 
-    #reference solution parameters:
-    dt = 0.00001
-    gridsteps = 100
+    :param float tmax: the total span of time from the beginning
+    :param float Da: the Damköhler number
+    :param float dt: timestep of the reference solution, default is 0.00001
+    :param int gridsteps: number of gridsteps of the reference solution (also used for all compared solutions), default is 100
+    :return: None
+    :raises ValueError: if gridsteps is not int
+    :raises ValueError: if gridsteps, tmax, dt is nonpositive
+    :raises ValueError: if Da is negative
+    """
+
+    #Define ValueErrors
+    check_inputs(gridsteps, tmax, dt, Da)
 
     dt_values = [0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001]
     #implicit reference 
@@ -260,24 +303,24 @@ def error_checker_dt( tmax, Da):
     #implicit time step error check
     errors_A = []
     errors_B = []
-    for dt in dt_values:
-        x, t, Phi_A, Phi_B = determinePhi_impl(gridsteps, tmax, dt, Da)
+    for dt_i in dt_values:
+        x, t, Phi_A, Phi_B = determinePhi_impl(gridsteps, tmax, dt_i, Da)
         rmse_A = np.sqrt(np.mean((Phi_A[-1,:] - Phi_A_ref[-1,:])**2))
         rmse_B = np.sqrt(np.mean((Phi_B[-1,:] - Phi_B_ref[-1,:])**2))
         errors_A.append(rmse_A)
         errors_B.append(rmse_B)
-        print(f"dt: {dt}, RMSE A: {rmse_A:.6e}, RMSE B: {rmse_B:.6e}")
+        print(f"dt: {dt_i}, RMSE A: {rmse_A:.6e}, RMSE B: {rmse_B:.6e}")
 
     #explicit time step error check
     errors_A_exp = []  
     errors_B_exp = []
-    for dt in dt_values:
-        x, t, Phi_A, Phi_B = determinePhi_expl(gridsteps, tmax, dt, Da)
+    for dt_i in dt_values:
+        x, t, Phi_A, Phi_B = determinePhi_expl(gridsteps, tmax, dt_i, Da)
         rmse_A_exp = np.sqrt(np.mean((Phi_A[-1,:] - Phi_A_ref_exp[-1,:])**2))
         rmse_B_exp = np.sqrt(np.mean((Phi_B[-1,:] - Phi_B_ref_exp[-1,:])**2))
         errors_A_exp.append(rmse_A_exp)
         errors_B_exp.append(rmse_B_exp)
-        print(f"dt: {dt}, RMSE A (explicit): {rmse_A_exp:.6e}, RMSE B (explicit): {rmse_B_exp:.6e}")
+        print(f"dt: {dt_i}, RMSE A (explicit): {rmse_A_exp:.6e}, RMSE B (explicit): {rmse_B_exp:.6e}")
 
     plt.figure(figsize=(12, 8))
     plt.loglog(dt_values, errors_A, 'o-', label='RMSE A (implicit)')
@@ -291,14 +334,23 @@ def error_checker_dt( tmax, Da):
     plt.grid(True, which='both', ls='--')
     plt.show()
          
-def error_checker_grid( tmax, Da):
+def error_checker_grid(tmax, Da, dt=0.00001, gridsteps=100):
     """Compares solution with a given grid size to a reference solution. The reference solution is the one computed with the \
     smallest dt and the largest gridsteps. Function works for both implicit and explicit methods. It computes the root mean square error \
-    and graphs it as a function of grid steps """
+    and graphs it as a function of grid steps.
 
-    #reference solution parameters:
-    dt = 0.00001
-    gridsteps = 100
+    :param float tmax: the total span of time from the beginning
+    :param float Da: the Damköhler number
+    :param float dt: timestep of the reference solution (also used for all compared solutions), default is 0.00001
+    :param int gridsteps: number of gridsteps of the reference solution, default is 100
+    :return: None
+    :raises ValueError: if gridsteps is not int
+    :raises ValueError: if gridsteps, tmax, dt is nonpositive
+    :raises ValueError: if Da is negative
+    """
+
+    #Define ValueErrors
+    check_inputs(gridsteps, tmax, dt, Da)
 
     grid_values = [80,60,40,20]
     #implicit reference 
