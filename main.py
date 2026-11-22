@@ -225,7 +225,7 @@ def stability_crit(dt, Da):
 dt = 0.000025
 tmax = 0.1
 gridsteps = 100    # number of steps in the space direction
-Da = 0 # Damkohler number (used to change k), basically no effect below 100 from my testing
+Da = 1000 # Damkohler number (used to change k), basically no effect below 100 from my testing
 
 #-------------------------------------Determine explicit stability in terms of delta_tau----------------
 #Turns out tau plays the role of a Fourier number, so it defines stability, through the test shown below
@@ -235,17 +235,115 @@ Da = 0 # Damkohler number (used to change k), basically no effect below 100 from
 
 
 #Showcase implicit function stablity by using bigger and bigger dt and plotting
-for dt in [0.000025, 0.0001, 0.001, 0.01]: 
-    x,t, Phi_A, Phi_B = determinePhi_impl(gridsteps, tmax, dt, Da)
-    plot(x, t, Phi_A, Phi_B,dt)
+#for dt in [0.000025, 0.0001, 0.001, 0.01]: 
+   # x,t, Phi_A, Phi_B = determinePhi_impl(gridsteps, tmax, dt, Da)
+    #plot(x, t, Phi_A, Phi_B,dt)
 
 # Error Checker function: compare each dt and gridsize to the smallest dt and largest gridsize, and see if the error is within a certain tolerance.
-def error_checker(dt, gridsteps, tmax, Da, tol = 1e-3):
-    """Compares solution with a given dt and gridsteps to a reference solution. The reference solution is the one computed with the \
-    smallest dt and the largest gridsteps. Function works for both implicit and explicit methods. It computes the maximum absolute error \
-    and graphs it as a function of dt or gridsteps. """
+def error_checker_dt( tmax, Da):
+    """Compares solution with a given dt to a reference solution. The reference solution is the one computed with the \
+    smallest dt and the largest gridsteps. Function works for both implicit and explicit methods. It computes the root mean square error \
+    and graphs it as a function of dt """
 
     #reference solution parameters:
-    dt = 0.000001
-    gridsteps = 1000
-    
+    dt = 0.00001
+    gridsteps = 100
+
+    dt_values = [0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001]
+    #implicit reference 
+    x_ref, t_ref, Phi_A_ref, Phi_B_ref = determinePhi_impl(gridsteps, tmax, dt, Da)
+
+    #explicit reference
+    x_ref_exp, t_ref_exp, Phi_A_ref_exp, Phi_B_ref_exp = determinePhi_expl(gridsteps, tmax, dt, Da)
+
+    #implicit time step error check
+    errors_A = []
+    errors_B = []
+    for dt in dt_values:
+        x, t, Phi_A, Phi_B = determinePhi_impl(gridsteps, tmax, dt, Da)
+        rmse_A = np.sqrt(np.mean((Phi_A[-1,:] - Phi_A_ref[-1,:])**2))
+        rmse_B = np.sqrt(np.mean((Phi_B[-1,:] - Phi_B_ref[-1,:])**2))
+        errors_A.append(rmse_A)
+        errors_B.append(rmse_B)
+        print(f"dt: {dt}, RMSE A: {rmse_A:.6e}, RMSE B: {rmse_B:.6e}")
+
+    #explicit time step error check
+    errors_A_exp = []  
+    errors_B_exp = []
+    for dt in dt_values:
+        x, t, Phi_A, Phi_B = determinePhi_expl(gridsteps, tmax, dt, Da)
+        rmse_A_exp = np.sqrt(np.mean((Phi_A[-1,:] - Phi_A_ref_exp[-1,:])**2))
+        rmse_B_exp = np.sqrt(np.mean((Phi_B[-1,:] - Phi_B_ref_exp[-1,:])**2))
+        errors_A_exp.append(rmse_A_exp)
+        errors_B_exp.append(rmse_B_exp)
+        print(f"dt: {dt}, RMSE A (explicit): {rmse_A_exp:.6e}, RMSE B (explicit): {rmse_B_exp:.6e}")
+
+    plt.figure(figsize=(12, 8))
+    plt.loglog(dt_values, errors_A, 'o-', label='RMSE A (implicit)')
+    plt.loglog(dt_values, errors_B, 'o-', label='RMSE B (implicit)')
+    plt.loglog(dt_values, errors_A_exp, 's--', label='RMSE A (explicit)')
+    plt.loglog(dt_values, errors_B_exp, 's--', label='RMSE B (explicit)')
+    plt.xlabel('dt') 
+    plt.ylabel('RMSE')
+    plt.title('Root Mean Square Error vs dt')  
+    plt.legend()
+    plt.grid(True, which='both', ls='--')
+    plt.show()
+         
+#error_checker_dt(tmax, Da)
+
+def error_checker_grid( tmax, Da):
+    """Compares solution with a given grid size to a reference solution. The reference solution is the one computed with the \
+    smallest dt and the largest gridsteps. Function works for both implicit and explicit methods. It computes the root mean square error \
+    and graphs it as a function of grid steps """
+
+    #reference solution parameters:
+    dt = 0.00001
+    gridsteps = 100
+
+    grid_values = [80,60,40,20]
+    #implicit reference 
+    x_ref, t_ref, Phi_A_ref, Phi_B_ref = determinePhi_impl(gridsteps, tmax, dt, Da)
+
+    #explicit reference
+    x_ref_exp, t_ref_exp, Phi_A_ref_exp, Phi_B_ref_exp = determinePhi_expl(gridsteps, tmax, dt, Da)
+
+    #implicit time step error check
+    errors_A = []
+    errors_B = []
+    for grid in grid_values:
+        x, t, Phi_A, Phi_B = determinePhi_impl(grid, tmax, dt, Da)
+        Phi_A_interp = np.interp(x, x_ref, Phi_A_ref[-1, :])
+        Phi_B_interp = np.interp(x, x_ref, Phi_B_ref[-1, :])
+        rmse_A = np.sqrt(np.mean((Phi_A[-1,:] - Phi_A_interp)**2))
+        rmse_B = np.sqrt(np.mean((Phi_B[-1,:] - Phi_B_interp)**2))
+        errors_A.append(rmse_A)
+        errors_B.append(rmse_B)
+        print(f"Grid Steps: {grid}, RMSE A: {rmse_A:.6e}, RMSE B: {rmse_B:.6e}")
+
+    #explicit time step error check
+    errors_A_exp = []  
+    errors_B_exp = []
+    for grid in grid_values:
+        x, t, Phi_A, Phi_B = determinePhi_expl(grid, tmax, dt, Da)
+        Phi_A_interp = np.interp(x, x_ref, Phi_A_ref[-1, :])
+        Phi_B_interp = np.interp(x, x_ref, Phi_B_ref[-1, :])
+        rmse_A_exp = np.sqrt(np.mean((Phi_A[-1,:] - Phi_A_interp)**2))
+        rmse_B_exp = np.sqrt(np.mean((Phi_B[-1,:] - Phi_B_interp)**2))
+        errors_A_exp.append(rmse_A_exp)
+        errors_B_exp.append(rmse_B_exp)
+        print(f"Grid Steps: {grid}, RMSE A (explicit): {rmse_A_exp:.6e}, RMSE B (explicit): {rmse_B_exp:.6e}")
+
+    plt.figure(figsize=(12, 8))
+    plt.loglog(grid_values, errors_A, 'o-', label='RMSE A (implicit)')
+    plt.loglog(grid_values, errors_B, 'o-', label='RMSE B (implicit)')
+    plt.loglog(grid_values, errors_A_exp, 's--', label='RMSE A (explicit)')
+    plt.loglog(grid_values, errors_B_exp, 's--', label='RMSE B (explicit)')
+    plt.xlabel('Grid Steps') 
+    plt.ylabel('RMSE')
+    plt.title('Root Mean Square Error vs Grid Steps')  
+    plt.legend()
+    plt.grid(True, which='both', ls='--')
+    plt.show()
+
+error_checker_grid( tmax, Da)
