@@ -542,12 +542,12 @@ def main():
     Da = 1000 # Damkohler number (used to change k), basically no effect below 100 from my testing
 
     #-------------------------------------Choose what to run---------------------------------------------
-    run_stability      = False    # find the explicit stability limit
-    run_stability_reaction = False   # find the stability limit of the implicit method for large dt*Da, all four variants
-    run_impl_showcase  = False   # show implicit stability for increasing dt
-    run_error_dt       = False   # convergence in dt
-    run_error_grid     = False   # convergence in grid size
-    run_error_Da       = False   # effect of the Damkohler number
+    run_stability      = True    # find the explicit stability limit
+    run_stability_reaction = True  # find the stability limit of the implicit method for large dt*Da, all four variants
+    run_impl_showcase  = True   # show implicit stability for increasing dt
+    run_error_dt       = True   # convergence in dt
+    run_error_grid     = True   # convergence in grid size
+    run_error_Da       = True   # effect of the Damkohler number
     run_error_order    = True   # first vs second order in time, and semi-implicit vs explicit reaction term
 
     #-------------------------------------Determine explicit stability in terms of delta_tau-------------
