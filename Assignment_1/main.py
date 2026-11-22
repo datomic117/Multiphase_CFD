@@ -450,6 +450,7 @@ def main():
     #-------------------------------------Determine explicit stability in terms of delta_tau-------------
     #Turns out tau plays the role of a Fourier number, so it defines stability, through the test shown below
     #we found out the criteria is around dt > 1*10**(-4). Run below to see the error blow up.
+    
     if run_stability:
         stability_crit(gridsteps, tmax, dt, Da, scheme="explicit")
         stability_crit(gridsteps, tmax, dt, Da, scheme="implicit")   # expected to be stable for all dt
