@@ -5,7 +5,26 @@ from   scipy.sparse.linalg import spsolve, cg, bicgstab, spilu, LinearOperator
 import math
 
 def main():
-    pass
+    #Parameters
+    dt = 0.000025      # timestep
+    tmax = 0.1         # end time of the simulation
+    gridsteps = 100    # number of steps in the space direction
+    Da = 100          # Damkohler number (used to change k), basically no effect below 100 from my testing
+
+    #Running the explicit scheme
+    x,t, Phi_A, Phi_B = determinePhi_expl(gridsteps, tmax, dt, Da)
+
+    #Plotting the result
+    plot(x, t, Phi_A, Phi_B,dt)
+
+    #Finding stable/unstable timestep
+    stability_crit(gridsteps, tmax, dt, Da)
+
+    #Error analysis
+    error_checker_grid(tmax, Da)
+    error_checker_dt(tmax, Da)
+
+    #Add for loop Da (implicit and explicit)
 
 
 def determinePhi_expl(gridsteps, t_end, dt, Da):
@@ -241,16 +260,16 @@ def stability_crit(gridsteps, t_end, dt, Da, N_steps=50):
     return None
 
 #-------------------------------------RUN EXPLICIT SCHEME-----------------------------------------------
-dt = 0.000025
-tmax = 0.1
-gridsteps = 100    # number of steps in the space direction
-Da = 1000 # Damkohler number (used to change k), basically no effect below 100 from my testing
+#dt = 0.000025
+#tmax = 0.1
+#gridsteps = 100    # number of steps in the space direction
+#Da = 1000 # Damkohler number (used to change k), basically no effect below 100 from my testing
 
 #-------------------------------------Determine explicit stability in terms of delta_tau----------------
 #Turns out tau plays the role of a Fourier number, so it defines stability, through the test shown below
 #we found out the criteria is around dt > 1*10**(-4). Run below to see the error blow up.
 
-stability_crit(dt, Da)
+#stability_crit(dt, Da)
 
 
 #Showcase implicit function stablity by using bigger and bigger dt and plotting
@@ -365,4 +384,7 @@ def error_checker_grid( tmax, Da):
     plt.grid(True, which='both', ls='--')
     plt.show()
 
-error_checker_grid( tmax, Da)
+#error_checker_grid( tmax, Da)
+
+if __name__ == '__main__':
+    main()
