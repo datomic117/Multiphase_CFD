@@ -228,9 +228,13 @@ def plot(x, t, Phi_A, Phi_B,dt, N_snapshots = 10):
     return None
 
 
-def stability_crit(gridsteps, t_end, dt, Da, N_steps=50):
-    """Finds the first and last timestep for which the explicit integration scheme blows up. 
+SCHEMES = {"implicit": determinePhi_impl, "explicit": determinePhi_expl}   # name -> solver, shared by the tests below
+
+
+def stability_crit(gridsteps, t_end, dt, Da, N_steps=50, scheme="explicit"):
+    """Finds the first and last timestep for which the chosen integration scheme blows up.
     It finds this timestep in the range of the given timestep to 100 times the given timesteps, in N_steps steps.
+    The explicit scheme is only conditionally stable, the implicit scheme is expected to be stable for all timesteps.
     Increasing N_steps increases computational cost significantly.
 
     :param int gridsteps: the number of gridsteps for the 1D problem
@@ -238,10 +242,12 @@ def stability_crit(gridsteps, t_end, dt, Da, N_steps=50):
     :param float dt: represents the step in Fourier number - dimensionless timestep
     :param float Da: the Damköhler number - dimensionless diffusion coefficient
     :param int N_steps: the number of steps taken from dt to 100*dt, default is 50.
+    :param str scheme: the scheme to test, "explicit" (default) or "implicit"
     :return: None
     :raises ValueError: if gridsteps or N_steps is not int
     :raises ValueError: if gridsteps, t_end, dt, N_steps is nonpositive
     :raises ValueError: if Da is negative
+    :raises ValueError: if scheme is not "explicit" or "implicit"
 
     """
 
@@ -256,23 +262,67 @@ def stability_crit(gridsteps, t_end, dt, Da, N_steps=50):
         print("Arg N_steps has to be larger than zero!")
         raise ValueError
 
+    if scheme not in SCHEMES:
+        print('Arg scheme has to be "explicit" or "implicit"!')
+        raise ValueError
+
+    solver = SCHEMES[scheme]
+    tol = 1e-9   # margin for rounding error in the bound |Phi| <= 1
     dt_test = np.linspace((dt), (100*dt), N_steps)
-    for dt in dt_test:
-        x, t, Phi_A, Phi_B = determinePhi_expl(gridsteps, t_end, dt, Da)
-        if np.max(np.abs(Phi_A)) <= 1 and np.max(np.abs(Phi_B)) <= 1:
-            last_stable = (x, t, Phi_A, Phi_B, dt)
-            last_dt = dt
+    for dt_i in dt_test:
+        x, t, Phi_A, Phi_B = solver(gridsteps, t_end, dt_i, Da)
+        # the concentrations are bounded by 1, with a margin for rounding error: the implicit solver
+        # returns 1.0000000000000007 at the boundary, which is not an instability
+        max_A, max_B = np.max(np.abs(Phi_A)), np.max(np.abs(Phi_B))
+        if max_A <= 1 + tol and max_B <= 1 + tol:
+            last_stable = (x, t, Phi_A, Phi_B, dt_i)
+            last_dt = dt_i
             continue
-        elif np.max(np.abs(Phi_A)) >= 1 or np.max(np.abs(Phi_B)) >= 1:
-            first_unstable = (x, t, Phi_A, Phi_B, dt)
+        else:
+            first_unstable = (x, t, Phi_A, Phi_B, dt_i)
             plot(*last_stable)
             plot(*first_unstable)
-            print(f"The last stable timestep = {last_dt:.6f}")
-            print(f"The first unstable timestep = {dt:.6f}")
+            print(f"The last stable timestep ({scheme}) = {last_dt:.6f}")
+            print(f"The first unstable timestep ({scheme}) = {dt_i:.6f}")
             break
     else:
-        print(f"Could not find a timestep for which the function breaks between {dt:.6f} and {100*dt:.6f}")
+        print(f"Could not find a timestep for which the {scheme} function breaks between {dt:.6f} and {100*dt:.6f}")
     return None
+
+
+def rmse(profile, profile_ref):
+    """Root mean square error between two profiles in space. The reference can be a numerical solution
+    or, later, an analytical one, as long as it is evaluated at the same gridpoints.
+
+    :param np.array(1D) profile: the concentration profile to check
+    :param np.array(1D) profile_ref: the reference concentration profile at the same gridpoints
+    :return: the root mean square error
+    :rtype: float
+    """
+    return np.sqrt(np.mean((profile - profile_ref)**2))
+
+
+def plot_errors(values, errors, xlabel, title):
+    """Plots the errors of the error checkers on a log-log scale, for both species and both schemes.
+
+    :param np.array(1D) values: the values of the parameter that was varied
+    :param dict errors: scheme name -> np.array of shape (2, len(values)), row 0 is species A and row 1 is species B
+    :param str xlabel: the label of the x axis, the name of the varied parameter
+    :param str title: the title of the plot
+    :return: None
+    """
+    styles = {"implicit": 'o-', "explicit": 's--'}
+    plt.figure(figsize=(12, 8))
+    for scheme, err in errors.items():
+        plt.loglog(values, err[0], styles[scheme], label=f'RMSE A ({scheme})')
+        plt.loglog(values, err[1], styles[scheme], label=f'RMSE B ({scheme})')
+    plt.xlabel(xlabel)
+    plt.ylabel('RMSE')
+    plt.title(title)
+    plt.legend()
+    plt.grid(True, which='both', ls='--')
+    plt.show()
+
 
 # Error Checker function: compare each dt and gridsize to the smallest dt and largest gridsize, and see if the error is within a certain tolerance.
 def error_checker_dt(tmax, Da, dt=0.00001, gridsteps=100):
@@ -293,47 +343,22 @@ def error_checker_dt(tmax, Da, dt=0.00001, gridsteps=100):
     #Define ValueErrors
     check_inputs(gridsteps, tmax, dt, Da)
 
-    dt_values = [0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001]
-    #implicit reference 
-    x_ref, t_ref, Phi_A_ref, Phi_B_ref = determinePhi_impl(gridsteps, tmax, dt, Da)
+    dt_values = np.array([0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001])
+    errors = {scheme: np.zeros((2, len(dt_values))) for scheme in SCHEMES}   # rows: species A, B
 
-    #explicit reference
-    x_ref_exp, t_ref_exp, Phi_A_ref_exp, Phi_B_ref_exp = determinePhi_expl(gridsteps, tmax, dt, Da)
+    for scheme, solver in SCHEMES.items():
+        #reference solution of this scheme
+        x_ref, t_ref, Phi_A_ref, Phi_B_ref = solver(gridsteps, tmax, dt, Da)
 
-    #implicit time step error check
-    errors_A = []
-    errors_B = []
-    for dt_i in dt_values:
-        x, t, Phi_A, Phi_B = determinePhi_impl(gridsteps, tmax, dt_i, Da)
-        rmse_A = np.sqrt(np.mean((Phi_A[-1,:] - Phi_A_ref[-1,:])**2))
-        rmse_B = np.sqrt(np.mean((Phi_B[-1,:] - Phi_B_ref[-1,:])**2))
-        errors_A.append(rmse_A)
-        errors_B.append(rmse_B)
-        print(f"dt: {dt_i}, RMSE A: {rmse_A:.6e}, RMSE B: {rmse_B:.6e}")
+        #time step error check
+        for i, dt_i in enumerate(dt_values):
+            x, t, Phi_A, Phi_B = solver(gridsteps, tmax, dt_i, Da)
+            errors[scheme][:, i] = rmse(Phi_A[-1,:], Phi_A_ref[-1,:]), rmse(Phi_B[-1,:], Phi_B_ref[-1,:])
+            print(f"dt: {dt_i}, RMSE A ({scheme}): {errors[scheme][0, i]:.6e}, RMSE B ({scheme}): {errors[scheme][1, i]:.6e}")
 
-    #explicit time step error check
-    errors_A_exp = []  
-    errors_B_exp = []
-    for dt_i in dt_values:
-        x, t, Phi_A, Phi_B = determinePhi_expl(gridsteps, tmax, dt_i, Da)
-        rmse_A_exp = np.sqrt(np.mean((Phi_A[-1,:] - Phi_A_ref_exp[-1,:])**2))
-        rmse_B_exp = np.sqrt(np.mean((Phi_B[-1,:] - Phi_B_ref_exp[-1,:])**2))
-        errors_A_exp.append(rmse_A_exp)
-        errors_B_exp.append(rmse_B_exp)
-        print(f"dt: {dt_i}, RMSE A (explicit): {rmse_A_exp:.6e}, RMSE B (explicit): {rmse_B_exp:.6e}")
+    plot_errors(dt_values, errors, 'dt', 'Root Mean Square Error vs dt')
 
-    plt.figure(figsize=(12, 8))
-    plt.loglog(dt_values, errors_A, 'o-', label='RMSE A (implicit)')
-    plt.loglog(dt_values, errors_B, 'o-', label='RMSE B (implicit)')
-    plt.loglog(dt_values, errors_A_exp, 's--', label='RMSE A (explicit)')
-    plt.loglog(dt_values, errors_B_exp, 's--', label='RMSE B (explicit)')
-    plt.xlabel('dt') 
-    plt.ylabel('RMSE')
-    plt.title('Root Mean Square Error vs dt')  
-    plt.legend()
-    plt.grid(True, which='both', ls='--')
-    plt.show()
-         
+
 def error_checker_grid(tmax, Da, dt=0.00001, gridsteps=100):
     """Compares solution with a given grid size to a reference solution. The reference solution is the one computed with the \
     smallest dt and the largest gridsteps. Function works for both implicit and explicit methods. It computes the root mean square error \
@@ -352,50 +377,57 @@ def error_checker_grid(tmax, Da, dt=0.00001, gridsteps=100):
     #Define ValueErrors
     check_inputs(gridsteps, tmax, dt, Da)
 
-    grid_values = [80,60,40,20]
-    #implicit reference 
-    x_ref, t_ref, Phi_A_ref, Phi_B_ref = determinePhi_impl(gridsteps, tmax, dt, Da)
+    grid_values = np.array([80, 60, 40, 20])
+    errors = {scheme: np.zeros((2, len(grid_values))) for scheme in SCHEMES}   # rows: species A, B
 
-    #explicit reference
-    x_ref_exp, t_ref_exp, Phi_A_ref_exp, Phi_B_ref_exp = determinePhi_expl(gridsteps, tmax, dt, Da)
+    for scheme, solver in SCHEMES.items():
+        #reference solution of this scheme
+        x_ref, t_ref, Phi_A_ref, Phi_B_ref = solver(gridsteps, tmax, dt, Da)
 
-    #implicit time step error check
-    errors_A = []
-    errors_B = []
-    for grid in grid_values:
-        x, t, Phi_A, Phi_B = determinePhi_impl(grid, tmax, dt, Da)
-        Phi_A_interp = np.interp(x, x_ref, Phi_A_ref[-1, :])
-        Phi_B_interp = np.interp(x, x_ref, Phi_B_ref[-1, :])
-        rmse_A = np.sqrt(np.mean((Phi_A[-1,:] - Phi_A_interp)**2))
-        rmse_B = np.sqrt(np.mean((Phi_B[-1,:] - Phi_B_interp)**2))
-        errors_A.append(rmse_A)
-        errors_B.append(rmse_B)
-        print(f"Grid Steps: {grid}, RMSE A: {rmse_A:.6e}, RMSE B: {rmse_B:.6e}")
+        #grid size error check, the reference is interpolated onto the coarser grid
+        for i, grid in enumerate(grid_values):
+            x, t, Phi_A, Phi_B = solver(grid, tmax, dt, Da)
+            Phi_A_interp = np.interp(x, x_ref, Phi_A_ref[-1, :])
+            Phi_B_interp = np.interp(x, x_ref, Phi_B_ref[-1, :])
+            errors[scheme][:, i] = rmse(Phi_A[-1,:], Phi_A_interp), rmse(Phi_B[-1,:], Phi_B_interp)
+            print(f"Grid Steps: {grid}, RMSE A ({scheme}): {errors[scheme][0, i]:.6e}, RMSE B ({scheme}): {errors[scheme][1, i]:.6e}")
 
-    #explicit time step error check
-    errors_A_exp = []  
-    errors_B_exp = []
-    for grid in grid_values:
-        x, t, Phi_A, Phi_B = determinePhi_expl(grid, tmax, dt, Da)
-        Phi_A_interp = np.interp(x, x_ref, Phi_A_ref[-1, :])
-        Phi_B_interp = np.interp(x, x_ref, Phi_B_ref[-1, :])
-        rmse_A_exp = np.sqrt(np.mean((Phi_A[-1,:] - Phi_A_interp)**2))
-        rmse_B_exp = np.sqrt(np.mean((Phi_B[-1,:] - Phi_B_interp)**2))
-        errors_A_exp.append(rmse_A_exp)
-        errors_B_exp.append(rmse_B_exp)
-        print(f"Grid Steps: {grid}, RMSE A (explicit): {rmse_A_exp:.6e}, RMSE B (explicit): {rmse_B_exp:.6e}")
+    plot_errors(grid_values, errors, 'Grid Steps', 'Root Mean Square Error vs Grid Steps')
 
-    plt.figure(figsize=(12, 8))
-    plt.loglog(grid_values, errors_A, 'o-', label='RMSE A (implicit)')
-    plt.loglog(grid_values, errors_B, 'o-', label='RMSE B (implicit)')
-    plt.loglog(grid_values, errors_A_exp, 's--', label='RMSE A (explicit)')
-    plt.loglog(grid_values, errors_B_exp, 's--', label='RMSE B (explicit)')
-    plt.xlabel('Grid Steps') 
-    plt.ylabel('RMSE')
-    plt.title('Root Mean Square Error vs Grid Steps')  
-    plt.legend()
-    plt.grid(True, which='both', ls='--')
-    plt.show()
+
+def error_checker_Da(tmax, dt=0.00001, gridsteps=100, Da_ref=0):
+    """Compares solutions with different Damköhler numbers to a reference solution. The reference solution is the one \
+    computed with Da_ref, which by default is zero, i.e. pure diffusion without any reaction. Function works for both implicit \
+    and explicit methods. It computes the root mean square error, so it shows how strongly the reaction changes the \
+    concentration profiles, and graphs it as a function of Da.
+
+    :param float tmax: the total span of time from the beginning
+    :param float dt: timestep of all solutions, default is 0.00001
+    :param int gridsteps: number of gridsteps of all solutions, default is 100
+    :param float Da_ref: the Damköhler number of the reference solution, default is 0 (no reaction)
+    :return: None
+    :raises ValueError: if gridsteps is not int
+    :raises ValueError: if gridsteps, tmax, dt is nonpositive
+    :raises ValueError: if Da_ref is negative
+    """
+
+    #Define ValueErrors
+    check_inputs(gridsteps, tmax, dt, Da_ref)
+
+    Da_values = np.array([1, 10, 100, 1000, 10000])
+    errors = {scheme: np.zeros((2, len(Da_values))) for scheme in SCHEMES}   # rows: species A, B
+
+    for scheme, solver in SCHEMES.items():
+        #reference solution of this scheme
+        x_ref, t_ref, Phi_A_ref, Phi_B_ref = solver(gridsteps, tmax, dt, Da_ref)
+
+        #Da error check
+        for i, Da_i in enumerate(Da_values):
+            x, t, Phi_A, Phi_B = solver(gridsteps, tmax, dt, Da_i)
+            errors[scheme][:, i] = rmse(Phi_A[-1,:], Phi_A_ref[-1,:]), rmse(Phi_B[-1,:], Phi_B_ref[-1,:])
+            print(f"Da: {Da_i}, RMSE A ({scheme}): {errors[scheme][0, i]:.6e}, RMSE B ({scheme}): {errors[scheme][1, i]:.6e}")
+
+    plot_errors(Da_values, errors, 'Da', f'Root Mean Square Error vs Da (reference Da = {Da_ref})')
 
 
 def main():
@@ -413,12 +445,14 @@ def main():
     run_impl_showcase  = False   # show implicit stability for increasing dt
     run_error_dt       = False   # convergence in dt
     run_error_grid     = False   # convergence in grid size
+    run_error_Da       = False   # effect of the Damkohler number
 
     #-------------------------------------Determine explicit stability in terms of delta_tau-------------
     #Turns out tau plays the role of a Fourier number, so it defines stability, through the test shown below
     #we found out the criteria is around dt > 1*10**(-4). Run below to see the error blow up.
     if run_stability:
-        stability_crit(gridsteps, tmax, dt, Da)
+        stability_crit(gridsteps, tmax, dt, Da, scheme="explicit")
+        stability_crit(gridsteps, tmax, dt, Da, scheme="implicit")   # expected to be stable for all dt
 
     #Showcase implicit function stablity by using bigger and bigger dt and plotting
     if run_impl_showcase:
@@ -432,6 +466,10 @@ def main():
 
     if run_error_grid:
         error_checker_grid(tmax, Da)
+
+    #Compare different Da to the reference solution without reaction
+    if run_error_Da:
+        error_checker_Da(tmax)
 
 
 if __name__ == "__main__":
