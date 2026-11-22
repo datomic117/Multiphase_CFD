@@ -4,6 +4,10 @@ import scipy.sparse as sps
 from   scipy.sparse.linalg import spsolve, cg, bicgstab, spilu, LinearOperator
 import math
 
+def main():
+    pass
+
+
 def determinePhi_expl(gridsteps, t_end, dt, Da):
 
     """Determine the solution of two concentration matrices of both species at 
@@ -168,7 +172,7 @@ def determinePhi_impl(gridsteps, t_end, dt, Da):
 
     return x, t, Phi_A, Phi_B
 
-def plot(x, t, Phi_A, Phi_B,dt, N_snapshots = 10, ):
+def plot(x, t, Phi_A, Phi_B,dt, N_snapshots = 10):
     """Plots the solution of the two concetration profiles 
     by showing a number of snapshots of the system for different times. It uses
     the result of determinePhi_expl() or determinePhi_impl() and the number of snapshots. 
@@ -202,36 +206,51 @@ def plot(x, t, Phi_A, Phi_B,dt, N_snapshots = 10, ):
 
     return None
 
-#STILL WORKING ON IT
-def stability_crit(dt, Da):
-    N_steps = 100
-    dt_test = np.linspace((0.1*dt), (10*dt), N_steps)
-    Da = 0
+
+def stability_crit(gridsteps, t_end, dt, Da, N_steps=50):
+    """Finds the first and last timestep for which the explicit integration scheme blows up. 
+    It finds this timestep in the range of the given timestep to 100 times the given timesteps, in N_steps steps.
+    Increasing N_steps increases computational cost significantly.
+    Value errors are already caught in Determin_Phi_expl.
+    
+    :param int gridsteps: the number of gridsteps for the 1D problem
+    :param float t_end: the total span of time from the beginning
+    :param float dt: represents the step in Fourier number - dimensionless timestep
+    :param float Da: the Damköhler number - dimensionless diffusion coefficient
+    :param int N_steps: the number of steps taken from dt to 100*dt, default is 50.
+    :return: None
+
+    """
+
+    dt_test = np.linspace((dt), (100*dt), N_steps)
     for dt in dt_test:
-        x, t, Phi_A, Phi_B = determinePhi_expl(gridsteps, tmax, dt, Da)
+        x, t, Phi_A, Phi_B = determinePhi_expl(gridsteps, t_end, dt, Da)
         if np.max(np.abs(Phi_A)) <= 1 and np.max(np.abs(Phi_B)) <= 1:
             last_stable = (x, t, Phi_A, Phi_B, dt)
+            last_dt = dt
             continue
-        else:
+        elif np.max(np.abs(Phi_A)) >= 1 or np.max(np.abs(Phi_B)) >= 1:
             first_unstable = (x, t, Phi_A, Phi_B, dt)
+            plot(*last_stable)
+            plot(*first_unstable)
+            print(f"The last stable timestep = {last_dt:.6f}")
+            print(f"The first unstable timestep = {dt:.6f}")
             break
-
-    plot(*last_stable[:4])
-    plot(*first_unstable[:4])
-
+    else:
+        print(f"Could not find a timestep for which the function breaks between {dt:.6f} and {100*dt:.6f}")
     return None
 
 #-------------------------------------RUN EXPLICIT SCHEME-----------------------------------------------
 dt = 0.000025
 tmax = 0.1
 gridsteps = 100    # number of steps in the space direction
-Da = 0 # Damkohler number (used to change k), basically no effect below 100 from my testing
+Da = 100 # Damkohler number (used to change k), basically no effect below 100 from my testing
 
 #-------------------------------------Determine explicit stability in terms of delta_tau----------------
 #Turns out tau plays the role of a Fourier number, so it defines stability, through the test shown below
 #we found out the criteria is around dt > 1*10**(-4). Run below to see the error blow up.
 
-# stability_crit(dt, Da)
+stability_crit(dt, Da)
 
 
 #Showcase implicit function stablity by using bigger and bigger dt and plotting
@@ -247,5 +266,7 @@ def error_checker(dt, gridsteps, tmax, Da, tol = 1e-3):
 
     #reference solution parameters:
     dt = 0.000001
-    gridsteps = 1000
-    
+    gridsteps = 1000  
+
+if __name__ == '__main__':
+    main() 
