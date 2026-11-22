@@ -83,7 +83,7 @@ def determinePhi_expl(gridsteps, t_end, dt, Da):
 
 
 
-def determinePhi_impl(gridsteps, t_end, dt, Da, optimised_solving=True):
+def determinePhi_impl(gridsteps, t_end, dt, Da, optimised_solving=True, second_order=True, explicit_reaction=False):
 
     """Determine the solution of two concentration matrices of both species at
     every gridpoint in space and time. This is an implicit method.
@@ -101,6 +101,12 @@ def determinePhi_impl(gridsteps, t_end, dt, Da, optimised_solving=True):
     with the first and last row replaced by the boundary conditions.
     A is solved first (R implicit in A), then B is solved with R as a known sink.
 
+    Two options change the discretisation, which makes comparing them easy:
+        second_order=False   : backward Euler (first order in time) in every step, instead of BDF2.
+        explicit_reaction=True: partially explicit reaction, R = Da*Phi_A_old*Phi_B_old, so both concentrations are
+                                taken at the old time level. R is then known for both species and is a sink on the
+                                right-hand side of both, the matrices contain no reaction term.
+
     :param int gridsteps: the number of gridsteps for the 1D problem
     :param float t_end: the total span of time from the beginning
     :param float dt: represents the step in Fourier number - dimensionless timestep
@@ -108,21 +114,25 @@ def determinePhi_impl(gridsteps, t_end, dt, Da, optimised_solving=True):
     :param bool optimised_solving: if True (default) the tridiagonal system is solved directly from its three
         diagonals with the LAPACK routine dgtsv, which is much faster. If False the sparse matrix is assembled
         and solved with spsolve.
+    :param bool second_order: if True (default) BDF2 is used for the derivative in time, if False backward Euler
+    :param bool explicit_reaction: if False (default) R = Da*Phi_A_new*Phi_B_old, if True R = Da*Phi_A_old*Phi_B_old
     :return: the space mesh, time mesh, the concetration 2D arrays of A, B
     :rtype: tuple(np.array(1D), np.array(1D), np.array(2D), np.array(2D))
     :raises ValueError: if gridsteps is not int
     :raises ValueError: if gridsteps, t_end, dt is nonpositive
     :raises ValueError: if Da is negative
-    :raises ValueError: if optimised_solving is not a bool
+    :raises ValueError: if optimised_solving, second_order or explicit_reaction is not a bool
 
     """
 
     #Define ValueErrors
     check_inputs(gridsteps, t_end, dt, Da)
 
-    if not isinstance(optimised_solving, (bool, np.bool_)):
-        print("Arg optimised_solving has to be a boolean!")
-        raise ValueError
+    for name, flag in (("optimised_solving", optimised_solving), ("second_order", second_order),
+                       ("explicit_reaction", explicit_reaction)):
+        if not isinstance(flag, (bool, np.bool_)):
+            print(f"Arg {name} has to be a boolean!")
+            raise ValueError
 
 
     # Create the arrays for all space and time steps
@@ -171,25 +181,34 @@ def determinePhi_impl(gridsteps, t_end, dt, Da, optimised_solving=True):
         matrix = sps.diags([sub, diag, sup], [-1, 0, 1], format="csc")
         return spsolve(matrix, b) #returns the Phi vector at a single time step
 
+    zeros = np.zeros(len(x))   # implicit reaction coefficient of a species whose reaction is on the right-hand side
+
     # time loop over desired number of timesteps, every pass fills one whole row n+1
     for n in range(timesteps):
-        if n == 0:   # BDF2 needs Phi[n-1], so start with one backward Euler step
+        if n == 0 or not second_order:   # BDF2 needs Phi[n-1], so start with one backward Euler step
             c0, s = 1, 1
-            rhs_A, rhs_B = Phi_A[0,:], Phi_B[0,:]
+            rhs_A, rhs_B = Phi_A[n,:], Phi_B[n,:]
         else:
             c0, s = 3, 2
             rhs_A = 4*Phi_A[n,:] - Phi_A[n-1,:]
             rhs_B = 4*Phi_B[n,:] - Phi_B[n-1,:]
 
-        # The reaction term R = Da*Phi_A_new*Phi_B_old must be identical in both equations,
+        # The reaction term R must be identical in both equations,
         # otherwise A and B are not consumed in equal amounts.
-        # A: R is linear in Phi_A_new, so it goes into the matrix (implicit).
-        Phi_A[n+1,:] = solve_step(rhs_A, Da*Phi_B[n], c0, s, 1, 0)   # A = 1 at x = 0, A = 0 at x = L
+        if explicit_reaction:
+            # Partially explicit: R = Da*Phi_A_old*Phi_B_old is known for both species, so it is a sink on
+            # the right-hand side of both and the two species can be solved independently.
+            R = Da*Phi_A[n,:]*Phi_B[n,:]
+            Phi_A[n+1,:] = solve_step(rhs_A - s*dt*R, zeros, c0, s, 1, 0)   # A = 1 at x = 0, A = 0 at x = L
+            Phi_B[n+1,:] = solve_step(rhs_B - s*dt*R, zeros, c0, s, 0, 1)   # B = 0 at x = 0, B = 1 at x = L
+        else:
+            # R = Da*Phi_A_new*Phi_B_old.
+            # A: R is linear in Phi_A_new, so it goes into the matrix (implicit).
+            Phi_A[n+1,:] = solve_step(rhs_A, Da*Phi_B[n], c0, s, 1, 0)   # A = 1 at x = 0, A = 0 at x = L
 
-        # B: the same R is now known (Phi_A_new is solved), so it moves to the right-hand side as a sink.
-        R = Da*Phi_A[n+1,:]*Phi_B[n,:]
-        rhs_B = rhs_B - s*dt*R
-        Phi_B[n+1,:] = solve_step(rhs_B, np.zeros(len(x)), c0, s, 0, 1)   # B = 0 at x = 0, B = 1 at x = L
+            # B: the same R is now known (Phi_A_new is solved), so it moves to the right-hand side as a sink.
+            R = Da*Phi_A[n+1,:]*Phi_B[n,:]
+            Phi_B[n+1,:] = solve_step(rhs_B - s*dt*R, zeros, c0, s, 0, 1)   # B = 0 at x = 0, B = 1 at x = L
 
     return x, t, Phi_A, Phi_B
 
@@ -231,10 +250,13 @@ def plot(x, t, Phi_A, Phi_B,dt, N_snapshots = 10):
 SCHEMES = {"implicit": determinePhi_impl, "explicit": determinePhi_expl}   # name -> solver, shared by the tests below
 
 
-def stability_crit(gridsteps, t_end, dt, Da, N_steps=50, scheme="explicit"):
+def stability_crit(gridsteps, t_end, dt, Da, N_steps=50, scheme="explicit", second_order=True, explicit_reaction=False):
     """Finds the first and last timestep for which the chosen integration scheme blows up.
     It finds this timestep in the range of the given timestep to 100 times the given timesteps, in N_steps steps.
-    The explicit scheme is only conditionally stable, the implicit scheme is expected to be stable for all timesteps.
+    The explicit scheme is only conditionally stable. The diffusion term of the implicit scheme is stable for all
+    timesteps, but its reaction term is lagged (or fully explicit if explicit_reaction=True), so the implicit scheme
+    can still blow up when dt*Da is large. That limit depends on dt*Da, so choose dt and Da to make 100*dt*Da reach
+    about 10 or more, and t_end long enough (many steps) for a blow up to grow.
     Increasing N_steps increases computational cost significantly.
 
     :param int gridsteps: the number of gridsteps for the 1D problem
@@ -243,11 +265,16 @@ def stability_crit(gridsteps, t_end, dt, Da, N_steps=50, scheme="explicit"):
     :param float Da: the Damköhler number - dimensionless diffusion coefficient
     :param int N_steps: the number of steps taken from dt to 100*dt, default is 50.
     :param str scheme: the scheme to test, "explicit" (default) or "implicit"
+    :param bool second_order: BDF2 (default) or backward Euler, only for scheme="implicit", see determinePhi_impl()
+    :param bool explicit_reaction: R = Da*Phi_A_new*Phi_B_old (default) or the partially explicit
+        R = Da*Phi_A_old*Phi_B_old, only for scheme="implicit", see determinePhi_impl()
     :return: None
     :raises ValueError: if gridsteps or N_steps is not int
     :raises ValueError: if gridsteps, t_end, dt, N_steps is nonpositive
     :raises ValueError: if Da is negative
     :raises ValueError: if scheme is not "explicit" or "implicit"
+    :raises ValueError: if second_order or explicit_reaction is not a bool, or is changed from its default for
+        scheme="explicit"
 
     """
 
@@ -266,14 +293,28 @@ def stability_crit(gridsteps, t_end, dt, Da, N_steps=50, scheme="explicit"):
         print('Arg scheme has to be "explicit" or "implicit"!')
         raise ValueError
 
+    for name, flag in (("second_order", second_order), ("explicit_reaction", explicit_reaction)):
+        if not isinstance(flag, (bool, np.bool_)):
+            print(f"Arg {name} has to be a boolean!")
+            raise ValueError
+
+    if scheme == "explicit" and (not second_order or explicit_reaction):
+        print('Args second_order and explicit_reaction only apply to scheme "implicit"!')
+        raise ValueError
+
     solver = SCHEMES[scheme]
+    solver_kwargs = {"second_order": second_order, "explicit_reaction": explicit_reaction} if scheme == "implicit" else {}
+    # name used in the printed output, only mentions the options that differ from the default
+    if scheme == "implicit":
+        scheme += ("" if second_order else ", 1st order") + (", explicit R" if explicit_reaction else "")
+
     tol = 1e-9   # margin for rounding error in the bound |Phi| <= 1
     dt_test = np.linspace((dt), (100*dt), N_steps)
     for dt_i in dt_test:
         # an unstable run grows until it overflows to inf and nan, that is the thing we are looking for here,
         # so the overflow warnings are silenced for this call only
         with np.errstate(over='ignore', invalid='ignore'):
-            x, t, Phi_A, Phi_B = solver(gridsteps, t_end, dt_i, Da)
+            x, t, Phi_A, Phi_B = solver(gridsteps, t_end, dt_i, Da, **solver_kwargs)
         # the concentrations are bounded by 1, with a margin for rounding error: the implicit solver
         # returns 1.0000000000000007 at the boundary, which is not an instability
         max_A, max_B = np.max(np.abs(Phi_A)), np.max(np.abs(Phi_B))
@@ -305,16 +346,18 @@ def rmse(profile, profile_ref):
     return np.sqrt(np.mean((profile - profile_ref)**2))
 
 
-def plot_errors(values, errors, xlabel, title):
-    """Plots the errors of the error checkers on a log-log scale, for both species and both schemes.
+def plot_errors(values, errors, xlabel, title, styles=None):
+    """Plots the errors of the error checkers on a log-log scale, for both species and every scheme or variant.
 
     :param np.array(1D) values: the values of the parameter that was varied
     :param dict errors: scheme name -> np.array of shape (2, len(values)), row 0 is species A and row 1 is species B
     :param str xlabel: the label of the x axis, the name of the varied parameter
     :param str title: the title of the plot
+    :param dict styles: scheme name -> matplotlib format string, default is the one for "implicit" and "explicit"
     :return: None
     """
-    styles = {"implicit": 'o-', "explicit": 's--'}
+    if styles is None:
+        styles = {"implicit": 'o-', "explicit": 's--'}
     plt.figure(figsize=(12, 8))
     for scheme, err in errors.items():
         plt.loglog(values, err[0], styles[scheme], label=f'RMSE A ({scheme})')
@@ -433,6 +476,61 @@ def error_checker_Da(tmax, dt=0.00001, gridsteps=100, Da_ref=0):
     plot_errors(Da_values, errors, 'Da', f'Root Mean Square Error vs Da (reference Da = {Da_ref})')
 
 
+def error_checker_order(tmax, Da, dt=0.00001, gridsteps=100):
+    """Compares the discretisation of the implicit method: first order (backward Euler) against second order (BDF2) in
+    time, and the reaction term R = Da*Phi_A_new*Phi_B_old against the partially explicit R = Da*Phi_A_old*Phi_B_old.
+    All four combinations are compared to one common reference solution, the best variant (BDF2 with
+    R = Da*Phi_A_new*Phi_B_old) computed with the given dt. It computes the root mean square error, graphs it as a
+    function of dt and prints the observed order of convergence, which is the slope of the graph.
+    Note that the reaction term is only first order accurate in time, so for large Da BDF2 will not reach second order.
+
+    :param float tmax: the total span of time from the beginning
+    :param float Da: the Damköhler number
+    :param float dt: timestep of the reference solution, default is 0.00001
+    :param int gridsteps: number of gridsteps of all solutions, default is 100
+    :return: None
+    :raises ValueError: if gridsteps is not int
+    :raises ValueError: if gridsteps, tmax, dt is nonpositive
+    :raises ValueError: if Da is negative
+    """
+
+    #Define ValueErrors
+    check_inputs(gridsteps, tmax, dt, Da)
+
+    dt_values = np.array([0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001])
+    # name: (second_order, explicit_reaction)
+    variants = {"2nd order, semi-implicit R": (True, False),
+                "2nd order, explicit R":      (True, True),
+                "1st order, semi-implicit R": (False, False),
+                "1st order, explicit R":      (False, True)}
+    styles = {"2nd order, semi-implicit R": 'o-',  "2nd order, explicit R": 's-',
+              "1st order, semi-implicit R": '^--', "1st order, explicit R": 'D--'}
+    errors = {name: np.zeros((2, len(dt_values))) for name in variants}   # rows: species A, B
+
+    #common reference solution
+    x_ref, t_ref, Phi_A_ref, Phi_B_ref = determinePhi_impl(gridsteps, tmax, dt, Da)
+
+    for name, (second_order, explicit_reaction) in variants.items():
+        for i, dt_i in enumerate(dt_values):
+            # an unstable variant overflows, this shows up as an infinite error, so the warnings are silenced
+            with np.errstate(over='ignore', invalid='ignore'):
+                x, t, Phi_A, Phi_B = determinePhi_impl(gridsteps, tmax, dt_i, Da,
+                                                       second_order=second_order, explicit_reaction=explicit_reaction)
+                errors[name][:, i] = rmse(Phi_A[-1,:], Phi_A_ref[-1,:]), rmse(Phi_B[-1,:], Phi_B_ref[-1,:])
+            print(f"dt: {dt_i}, RMSE A ({name}): {errors[name][0, i]:.6e}, RMSE B ({name}): {errors[name][1, i]:.6e}")
+
+    #observed order of convergence: slope of log(error) against log(dt), taken for species A
+    print()
+    for name, err in errors.items():
+        if np.all(np.isfinite(err[0])) and np.all(err[0] > 0):
+            order = np.polyfit(np.log(dt_values), np.log(err[0]), 1)[0]
+            print(f"Observed order ({name}): {order:.2f}")
+        else:
+            print(f"Observed order ({name}): not defined, the error is zero or not finite (unstable?)")
+
+    plot_errors(dt_values, errors, 'dt', f'Root Mean Square Error vs dt for different discretisations (Da = {Da})', styles)
+
+
 def main():
     """Entry point: sets the parameters and runs the selected parts of the analysis.
     Switch the flags to choose what is run, since the error checkers are computationally expensive."""
@@ -444,11 +542,13 @@ def main():
     Da = 1000 # Damkohler number (used to change k), basically no effect below 100 from my testing
 
     #-------------------------------------Choose what to run---------------------------------------------
-    run_stability      = True    # find the explicit stability limit
+    run_stability      = False    # find the explicit stability limit
+    run_stability_reaction = False   # find the stability limit of the implicit method for large dt*Da, all four variants
     run_impl_showcase  = False   # show implicit stability for increasing dt
     run_error_dt       = False   # convergence in dt
     run_error_grid     = False   # convergence in grid size
     run_error_Da       = False   # effect of the Damkohler number
+    run_error_order    = True   # first vs second order in time, and semi-implicit vs explicit reaction term
 
     #-------------------------------------Determine explicit stability in terms of delta_tau-------------
     #Turns out tau plays the role of a Fourier number, so it defines stability, through the test shown below
@@ -456,7 +556,15 @@ def main():
     
     if run_stability:
         stability_crit(gridsteps, tmax, dt, Da, scheme="explicit")
-        stability_crit(gridsteps, tmax, dt, Da, scheme="implicit")   # expected to be stable for all dt
+        stability_crit(gridsteps, tmax, dt, Da, scheme="implicit")   # stable in this dt range, but see run_stability_reaction for larger dt*Da
+
+    #The reaction term of the implicit method is lagged, so it can still blow up for large dt*Da. This limit needs a wider
+    #dt range and a longer time than above, since a blow up needs enough timesteps to grow.
+    if run_stability_reaction:
+        for second_order in (True, False):
+            for explicit_reaction in (False, True):
+                stability_crit(gridsteps, 1.0, 0.0001, Da, scheme="implicit",
+                               second_order=second_order, explicit_reaction=explicit_reaction)
 
     #Showcase implicit function stablity by using bigger and bigger dt and plotting
     if run_impl_showcase:
@@ -474,6 +582,10 @@ def main():
     #Compare different Da to the reference solution without reaction
     if run_error_Da:
         error_checker_Da(tmax)
+
+    #Compare the discretisations of the implicit method, run it with Da = 0 as well to see pure second order
+    if run_error_order:
+        error_checker_order(tmax, Da)
 
 
 if __name__ == "__main__":
