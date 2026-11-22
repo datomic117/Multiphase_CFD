@@ -325,8 +325,8 @@ def error_checker_grid( tmax, Da):
     errors_B_exp = []
     for grid in grid_values:
         x, t, Phi_A, Phi_B = determinePhi_expl(grid, tmax, dt, Da)
-        Phi_A_interp = np.interp(x, x_ref, Phi_A_ref[-1, :])
-        Phi_B_interp = np.interp(x, x_ref, Phi_B_ref[-1, :])
+        Phi_A_interp = np.interp(x, x_ref_exp, Phi_A_ref_exp[-1, :])
+        Phi_B_interp = np.interp(x, x_ref_exp, Phi_B_ref_exp[-1, :])
         rmse_A_exp = np.sqrt(np.mean((Phi_A[-1,:] - Phi_A_interp)**2))
         rmse_B_exp = np.sqrt(np.mean((Phi_B[-1,:] - Phi_B_interp)**2))
         errors_A_exp.append(rmse_A_exp)
@@ -365,6 +365,7 @@ def main():
     #-------------------------------------Determine explicit stability in terms of delta_tau-------------
     #Turns out tau plays the role of a Fourier number, so it defines stability, through the test shown below
     #we found out the criteria is around dt > 1*10**(-4). Run below to see the error blow up.
+    
     if run_stability:
         stability_crit(gridsteps, tmax, dt, Da)
 
