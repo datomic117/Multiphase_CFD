@@ -14,7 +14,7 @@ def determinePhi_expl(gridsteps, t_end, dt, Da):
     :param int gridsteps: the number of gridsteps for the 1D problem
     :param float t_end: the total span of time from the beginning
     :param float dt: represents the step in Fourier number - dimensionless timestep
-    :param float Da: the Damköhler number - dimensionless diffusion coefficient
+    :param float Da: the Damköhler number - dimensionless diffusion coefficient/dimensionless reaction rate coefficient
     :return: the space mesh, time mesh, the concetration 2D arrays of A, B
     :rtype: tuple(np.array(1D), np.array(1D), np.array(2D), np.array(2D))
     :raises ValueError: if gridsteps is not int
@@ -168,7 +168,7 @@ def determinePhi_impl(gridsteps, t_end, dt, Da):
 
     return x, t, Phi_A, Phi_B
 
-def plot(x, t, Phi_A, Phi_B, N_snapshots = 10):
+def plot(x, t, Phi_A, Phi_B,dt, N_snapshots = 10, ):
     """Plots the solution of the two concetration profiles 
     by showing a number of snapshots of the system for different times. It uses
     the result of determinePhi_expl() or determinePhi_impl() and the number of snapshots. 
@@ -194,7 +194,7 @@ def plot(x, t, Phi_A, Phi_B, N_snapshots = 10):
         plt.plot(x, Phi_A[j, :], color=c, label=f't={t[j]:.3f}')   # A: solid
         plt.plot(x, Phi_B[j, :], '--', color=c)                    # B: dashed
 
-    plt.title("Dimensionless concentration of A (solid) and B (dashed)")
+    plt.title("Dimensionless concentration of A (solid) and B (dashed) with dt = {:.6f}".format(dt))
     plt.xlabel('x')
     plt.ylabel('Phi')
     plt.legend(fontsize=8, ncol = 2)
@@ -234,6 +234,18 @@ Da = 0 # Damkohler number (used to change k), basically no effect below 100 from
 # stability_crit(dt, Da)
 
 
-#Test implicit function
-x,t, Phi_A, Phi_B = determinePhi_impl(gridsteps, tmax, dt, Da)
-plot(x, t, Phi_A, Phi_B)
+#Showcase implicit function stablity by using bigger and bigger dt and plotting
+for dt in [0.000025, 0.0001, 0.001, 0.01]: 
+    x,t, Phi_A, Phi_B = determinePhi_impl(gridsteps, tmax, dt, Da)
+    plot(x, t, Phi_A, Phi_B,dt)
+
+# Error Checker function: compare each dt and gridsize to the smallest dt and largest gridsize, and see if the error is within a certain tolerance.
+def error_checker(dt, gridsteps, tmax, Da, tol = 1e-3):
+    """Compares solution with a given dt and gridsteps to a reference solution. The reference solution is the one computed with the \
+    smallest dt and the largest gridsteps. Function works for both implicit and explicit methods. It computes the maximum absolute error \
+    and graphs it as a function of dt or gridsteps. """
+
+    #reference solution parameters:
+    dt = 0.000001
+    gridsteps = 1000
+    
